@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Receiver Kit Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<script>
+  // Paste your Google Apps Script web app URL here (it ends in /exec).
+  const API_URL = "https://script.google.com/macros/s/AKfycbwbL3VjRCA7R3LaqsmwEsfOOJiNtCo20oV6j_EyFFPQHsijCedGAxAr4VNgM6Nfkf4Y/exec";
+</script>
+<style>
+/* Layout: equipment-room ledger. Stock counters on top, then the people list as a checklist (waiting → has items → returned), add-people panel beside it, language table and history below. */
+:root {
+  --bg: #f3f4f7;
+  --surface: #ffffff;
+  --ink: #161a2b;
+  --muted: #5d6378;
+  --line: #dde0e8;
+  --accent: #2f3ea8;
+  --accent-ink: #ffffff;
+  --accent-soft: #e6e9fb;
+  --signal: #b85c00;
+  --signal-bg: #fff1e0;
+  --ok: #1f7a4d;
+  --ok-bg: #e3f4ea;
+  --bad: #b3261e;
+  --bad-bg: #fde7e5;
+  --font-display: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --radius: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #10121c; --surface: #191c2a; --ink: #e8eaf3; --muted: #9aa0b8; --line: #2b3044;
+    --accent: #8f9bff; --accent-ink: #10121c; --accent-soft: #23284a; --signal: #ffb35c; --signal-bg: #3a2810;
+    --ok: #6fd39f; --ok-bg: #16301f; --bad: #ff8a80; --bad-bg: #3a1714; color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1160px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; display: grid; gap: 28px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: 1.05rem; font-weight: 700; }
+.eyebrow { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; }
+.muted { color: var(--muted); }
+
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+header p { margin: 4px 0 0; color: var(--muted); }
+.head-right { display: grid; gap: 6px; justify-items: end; }
+.staff { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: end; }
+.staff input { width: 130px; }
+.notice { background: var(--signal-bg); color: var(--signal); border-radius: var(--radius); padding: 10px 14px; font-weight: 500; }
+.notice.bad { background: var(--bad-bg); color: var(--bad); }
+
+/* stock */
+.stock { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.item { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.item-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.item-head h3 { font-size: 1.05rem; font-weight: 700; }
+.avail { display: flex; align-items: baseline; gap: 8px; }
+.avail .big { font-family: var(--font-data); font-size: 2.6rem; font-weight: 700; line-height: 1; }
+.meter { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; display: flex; }
+.meter span { display: block; height: 100%; }
+.meter .m-out { background: var(--signal); }
+.counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.counts div { display: grid; }
+.counts b { font-family: var(--font-data); font-size: 1.1rem; }
+.pill { font-size: 0.72rem; font-weight: 700; padding: 3px 9px; border-radius: 99px; white-space: nowrap; display: inline-block; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.low { background: var(--signal-bg); color: var(--signal); }
+.pill.none { background: var(--bad-bg); color: var(--bad); }
+.pill.wait { background: var(--accent-soft); color: var(--accent); }
+.total-edit { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.total-edit label { font-size: 0.85rem; color: var(--muted); }
+.total-edit input { width: 84px; }
+
+/* main grid */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 320px); gap: 20px; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+
+form { display: grid; gap: 14px; }
+.field { display: grid; gap: 6px; }
+.field > label, .qty-label { font-size: 0.85rem; font-weight: 600; }
+.hint { font-size: 0.8rem; color: var(--muted); }
+input[type="text"], input[type="number"], input[type="search"], input[type="password"], textarea {
+  font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; width: 100%;
+}
+input[type="number"] { font-family: var(--font-data); }
+textarea { resize: vertical; min-height: 60px; }
+#add-names { min-height: 130px; }
+input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.qty-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.qty-row:last-child { border-bottom: 0; }
+.qty-row small { display: block; color: var(--muted); font-size: 0.78rem; }
+.stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.stepper button { width: 34px; height: 34px; border: 0; background: var(--bg); color: var(--ink); font-size: 1.1rem; cursor: pointer; }
+.stepper button:disabled { opacity: 0.35; cursor: default; }
+.stepper output { min-width: 38px; text-align: center; font-family: var(--font-data); font-weight: 700; }
+
+.btn { font: inherit; font-weight: 600; border-radius: 8px; padding: 9px 14px; cursor: pointer; border: 1px solid transparent; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.go { background: var(--ok); color: var(--surface); }
+.btn.danger { background: var(--bad); color: var(--surface); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+.btn.link { background: transparent; color: var(--muted); padding-inline: 6px; }
+.btn.small { padding: 6px 11px; font-size: 0.85rem; }
+.form-msg { font-size: 0.85rem; margin: 0; }
+.form-msg:empty { display: none; }
+.form-msg.err { color: var(--bad); }
+.form-msg.good { color: var(--ok); }
+
+/* progress */
+.progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.prog { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; text-align: left; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.prog b { font-family: var(--font-data); font-size: 1.5rem; line-height: 1.1; }
+.prog[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.prog .eyebrow { display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.all { background: var(--muted); }
+.dot.wait { background: var(--accent); }
+.dot.out { background: var(--signal); }
+.dot.back { background: var(--ok); }
+.search-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.search { max-width: 280px; }
+
+/* people rows */
+.people { display: grid; gap: 8px; }
+.person { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 10px; border-left: 4px solid var(--line); }
+.person.st-wait { border-left-color: var(--accent); }
+.person.st-out { border-left-color: var(--signal); }
+.person.st-back { border-left-color: var(--ok); }
+.person-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.who-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.who { font-weight: 700; font-size: 1rem; overflow-wrap: anywhere; }
+.sub { font-size: 0.82rem; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.chip { font-size: 0.8rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; }
+.chip b { font-family: var(--font-data); }
+.chip.back { color: var(--muted); text-decoration: line-through; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: end; }
+.drawer { display: grid; gap: 8px; background: var(--bg); border-radius: 8px; padding: 10px 12px; }
+.drawer .stepper button { background: var(--surface); }
+.drawer-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.note { font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.empty { border: 1px dashed var(--line); border-radius: 8px; padding: 22px; text-align: center; color: var(--muted); }
+.bulk { display: grid; gap: 8px; justify-items: end; }
+.bulk .drawer { justify-items: start; }
+.reset-opts { display: grid; gap: 8px; }
+.check { display: flex; gap: 8px; align-items: start; font-size: 0.92rem; }
+.check input { margin-top: 4px; accent-color: var(--accent); }
+.danger-zone { border-color: var(--bad-bg); }
+.lang-tag { font-size: 0.75rem; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; white-space: nowrap; }
+.lang-btn { font: inherit; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.lang-btn:hover { text-decoration: underline; }
+tr.active td { background: var(--accent-soft); }
+tfoot td { font-weight: 700; border-bottom: 0; }
+.ch-cell { display: flex; align-items: center; gap: 6px; }
+input.ch-input { width: 64px; padding: 5px 8px; font-family: var(--font-data); font-weight: 700; text-align: center; }
+.edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-family: var(--font-data); }
+td.who { font-size: 0.9rem; }
+
+@media (max-width: 900px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .add-panel { order: -1; }
+}
+@media (max-width: 680px) {
+  .stock { grid-template-columns: minmax(0, 1fr); }
+  .progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .search { max-width: none; }
+  .person-top { grid-template-columns: minmax(0, 1fr); }
+  .actions { justify-content: start; }
+  .head-right { justify-items: start; }
+  .staff { justify-content: start; }
+}
+@media (max-width: 520px) { .edit-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: no-preference) {
+  .meter span { transition: width .3s ease; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Equipment room</div>
+      <h1>Receiver Kit Log</h1>
+      <p>Who needs a kit, who has received it, and who has brought it back.</p>
+    </div>
+    <div class="head-right">
+      <div class="staff" id="staff"></div>
+      <div class="eyebrow" id="sync-state">Loading…</div>
+    </div>
+  </header>
+
+  <div class="notice bad" id="setup-notice" hidden>This page isn't connected to its Google Sheet yet. Paste the web app URL into <b>API_URL</b> at the top of index.html.</div>
+  <div class="notice bad" id="load-notice" hidden>Couldn't load the log. Check your connection; the page will keep trying.</div>
+  <div class="notice" id="readonly-notice" hidden>You're viewing the log. Enter the staff PIN at the top to hand out or return items.</div>
+
+  <section class="stock" id="stock" aria-label="Stock"></section>
+
+  <div class="main">
+    <section class="panel" aria-labelledby="people-title">
+      <div class="panel-head">
+        <div>
+          <h2 id="people-title">People</h2>
+          <div class="muted" id="people-summary"></div>
+        </div>
+        <div class="bulk" id="bulk"></div>
+      </div>
+      <div class="progress" id="progress"></div>
+      <div class="search-row">
+        <input type="search" class="search" id="search" placeholder="Search by name or language" aria-label="Search by name or language">
+        <span class="hint" id="filter-label"></span>
+      </div>
+      <div class="people" id="people"></div>
+    </section>
+
+    <section class="panel add-panel" aria-labelledby="add-title">
+      <h2 id="add-title">Add people</h2>
+      <form id="add-form" novalidate>
+        <div class="field">
+          <label for="add-names">Names</label>
+          <textarea id="add-names" placeholder="One name per line&#10;Sarah Lim&#10;Ahmad Rizal, English&#10;Dewi Santoso"></textarea>
+          <span class="hint">Paste a whole list at once. To give someone a different language, write it after a comma: <b>Sarah Lim, English</b>. Names already on the list are skipped.</span>
+        </div>
+        <div class="field">
+          <label for="add-lang">Language</label>
+          <input type="text" id="add-lang" autocomplete="off" placeholder="e.g. Vietnamese" list="known-langs">
+          <datalist id="known-langs"></datalist>
+          <span class="hint">Used for every name above that doesn't have its own.</span>
+        </div>
+        <div>
+          <div class="qty-label">Each person needs</div>
+          <div id="add-kit"></div>
+        </div>
+        <button class="btn primary" type="submit" id="add-submit">Add to list</button>
+        <p class="form-msg" id="add-msg" role="status"></p>
+      </form>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="lang-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="lang-title">People by language</h2>
+        <div class="muted">Type each language's channel number once; it shows next to every person who speaks it. Click a language to show only those people in the list above.</div>
+      </div>
+    </div>
+    <div id="lang-table"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="hist-title">
+    <div class="panel-head">
+      <h2 id="hist-title">Hand-out history</h2>
+      <div class="muted" id="hist-summary"></div>
+    </div>
+    <div id="hist"></div>
+  </section>
+
+  <section class="panel danger-zone" aria-labelledby="reset-title">
+    <div>
+      <h2 id="reset-title">Reset for a new event</h2>
+      <div class="muted">Clears the log so you can start again. Download the records first if you want to keep them.</div>
+    </div>
+    <div class="reset-opts">
+      <label class="check"><input type="checkbox" id="reset-loans" checked disabled> <span>Delete all hand-out history</span></label>
+      <label class="check"><input type="checkbox" id="reset-people"> <span>Also remove everyone from the people list <span class="muted">(leave unticked to reuse the same names; they all go back to Waiting)</span></span></label>
+      <label class="check"><input type="checkbox" id="reset-stock"> <span>Also set all stock totals to 0</span></label>
+    </div>
+    <div class="drawer-actions" id="reset-actions"></div>
+    <p class="form-msg" id="reset-msg" role="status"></p>
+  </section>
+</div>
+
+<script>
+(() => {
+  const ITEMS = [
+    { key: "receiver", name: "Receivers", one: "receiver" },
+    { key: "earphone", name: "Earphones", one: "earphone" },
+    { key: "microphone", name: "Microphones", one: "microphone" },
+  ];
+  const zero = () => ({ receiver: 0, earphone: 0, microphone: 0 });
+  const STATUS = {
+    wait: { label: "Waiting", pill: "wait" },
+    out: { label: "Has items", pill: "low" },
+    back: { label: "Returned", pill: "ok" },
+  };
+  const configured = typeof API_URL === "string" && /^https:\/\//.test(API_URL);
+
+  const state = {
+    totals: zero(),
+    people: [],
+    loans: [],
+    channels: {},
+    loaded: false,
+    pin: "",
+    canWrite: false,
+    busy: false,
+    kit: { receiver: 1, earphone: 1, microphone: 0 },
+    filter: "all",
+    lang: null,
+    draftName: "",
+    draftLang: "",
+    open: null,
+    draft: zero(),
+    draftNote: "",
+    histLimit: 30,
+  };
+  try { state.pin = localStorage.getItem("rkl-pin") || ""; state.canWrite = !!state.pin; } catch (e) {}
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const btn = (cls, text, onClick) => {
+    const b = el("button", "btn " + cls, text);
+    b.type = "button";
+    b.addEventListener("click", onClick);
+    return b;
+  };
+  const num = (v) => Number(v) || 0;
+  const fmt = (iso) => iso ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  const norm = (s) => (s || "").trim().replace(/\s+/g, " ").toLowerCase();
+  const cleanLang = (s) => (s || "").trim().replace(/\s+/g, " ").replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+  const langOf = (p) => cleanLang(p.language);
+  const personById = (id) => state.people.find((p) => p.id === id);
+  const channelOf = (label) => (label ? state.channels[norm(label)] || "" : "");
+  const langWithCh = (label) => { const ch = channelOf(label); return label ? (ch ? `${label} · Ch ${ch}` : label) : ""; };
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  const outstanding = (loan, k) => Math.max(0, (loan.items?.[k] || 0) - (loan.returned?.[k] || 0));
+  const loanIsOut = (loan) => ITEMS.some((i) => outstanding(loan, i.key) > 0);
+  const outCount = (k) => state.loans.reduce((s, l) => s + outstanding(l, k), 0);
+  const available = (k) => (state.totals[k] || 0) - outCount(k);
+  const itemWord = (n, it) => n === 1 ? it.one : it.name.toLowerCase();
+
+  const loansFor = (p) => state.loans.filter((l) => l.personId === p.id || (!l.personId && norm(l.person) === norm(p.name)));
+  function statusOf(p) {
+    const ls = loansFor(p);
+    if (ls.some(loanIsOut)) return "out";
+    if (ls.length) return "back";
+    return "wait";
+  }
+
+  /* ---------- Google Sheet connection ---------- */
+  const cap = (k) => k[0].toUpperCase() + k.slice(1);
+  function applyState(s) {
+    state.people = (s.people || []).filter((r) => r.id).map((r) => ({
+      id: r.id, name: r.name, language: r.language, createdAt: r.createdAt,
+      needs: { receiver: num(r.receiver), earphone: num(r.earphone), microphone: num(r.microphone) },
+    }));
+    state.loans = (s.loans || []).filter((r) => r.id).map((r) => ({
+      id: r.id, personId: r.personId, person: r.person, language: r.language, note: r.note,
+      outAt: r.outAt, returnedAt: r.returnedAt || null, lastReturnAt: r.lastReturnAt || "",
+      items: { receiver: num(r.receiver), earphone: num(r.earphone), microphone: num(r.microphone) },
+      returned: { receiver: num(r.returnedReceiver), earphone: num(r.returnedEarphone), microphone: num(r.returnedMicrophone) },
+    }));
+    const ch = {};
+    (s.languages || []).forEach((r) => { if (r.language) ch[norm(r.language)] = String(r.channel || ""); });
+    state.channels = ch;
+    const totals = zero();
+    (s.stock || []).forEach((r) => { if (r.item in totals) totals[r.item] = num(r.total); });
+    state.totals = totals;
+    state.loaded = true;
+  }
+  const personRow = (p) => ({ id: p.id, name: p.name, language: p.language || "", receiver: p.needs.receiver, earphone: p.needs.earphone, microphone: p.needs.microphone, createdAt: p.createdAt || "" });
+  const loanRow = (l) => {
+    const r = { id: l.id, personId: l.personId || "", person: l.person, language: l.language || "", note: l.note || "", outAt: l.outAt || "", returnedAt: l.returnedAt || "", lastReturnAt: l.lastReturnAt || "" };
+    ITEMS.forEach((it) => { r[it.key] = l.items?.[it.key] || 0; r["returned" + cap(it.key)] = l.returned?.[it.key] || 0; });
+    return r;
+  };
+
+  function setSync(text) { $("sync-state").textContent = text; }
+
+  async function load() {
+    if (!configured) return;
+    try {
+      const res = await fetch(API_URL, { method: "GET" });
+      const data = await res.json();
+      applyState(data);
+      $("load-notice").hidden = true;
+      setSync("Updated " + new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }));
+      render();
+    } catch (e) {
+      $("load-notice").hidden = !!state.loaded;
+      if (!state.loaded) $("load-notice").hidden = false;
+      setSync("Offline");
+    }
+  }
+
+  async function post(ops, pin) {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ pin: pin ?? state.pin, ops }),
+    });
+    return res.json();
+  }
+
+  async function send(ops) {
+    if (!configured) throw { code: "not_configured" };
+    state.busy = true;
+    setSync("Saving…");
+    let data;
+    try { data = await post(ops); }
+    catch (e) { setSync("Not saved"); throw { code: "network" }; }
+    finally { state.busy = false; }
+    if (data && data.error === "bad_pin") { lockStaff(); setSync("Not saved"); throw { code: "bad_pin" }; }
+    if (!data || data.error) { setSync("Not saved"); throw { code: (data && data.error) || "unknown" }; }
+    applyState(data);
+    setSync("Saved");
+    render();
+  }
+
+  // Group several changes into one request.
+  let pending = null;
+  async function commit(ops) {
+    if (pending) { pending.push(...ops); return; }
+    await send(ops);
+  }
+  async function batch(fn) {
+    pending = [];
+    try {
+      await fn();
+      const ops = pending;
+      pending = null;
+      if (ops.length) await send(ops);
+    } finally { pending = null; }
+  }
+
+  const saveTotal = (k, n) => commit([{ op: "upsert", coll: "stock", row: { item: k, total: n } }]);
+  const saveChannel = (label, channel) => commit([{ op: "upsert", coll: "languages", row: { language: label, channel } }]);
+  const toRow = (coll, d) => coll === "people" ? personRow(d) : loanRow(d);
+  const addDoc = (coll, data) => commit([{ op: "upsert", coll, row: toRow(coll, { id: newId(), ...data }) }]);
+  const updateDoc = (coll, id, patch) => {
+    const cur = state[coll].find((d) => d.id === id);
+    if (!cur) return Promise.resolve();
+    return commit([{ op: "upsert", coll, row: toRow(coll, { ...cur, ...patch }) }]);
+  };
+  const deleteDoc = (coll, id) => commit([{ op: "delete", coll, key: id }]);
+
+  function writeFailed(e, msgEl) {
+    const code = e && e.code;
+    let text = "That didn't save. Check your connection and try again.";
+    if (code === "bad_pin") text = "The staff PIN is wrong or has changed. Enter it again at the top of the page.";
+    if (code === "not_configured") text = "This page isn't connected to its Google Sheet yet.";
+    if (msgEl) { msgEl.textContent = text; msgEl.className = "form-msg err"; }
+  }
+
+  /* ---------- staff PIN ---------- */
+  function lockStaff() {
+    state.pin = ""; state.canWrite = false;
+    try { localStorage.removeItem("rkl-pin"); } catch (e) {}
+    render();
+  }
+  function renderStaff() {
+    const root = $("staff");
+    const mode = !configured ? "off" : state.canWrite ? "on" : "locked";
+    if (root.dataset.mode === mode) return; // keep a half-typed PIN when the list refreshes
+    root.dataset.mode = mode;
+    root.replaceChildren();
+    if (!configured) return;
+    if (state.canWrite) {
+      root.append(el("span", "pill ok", "Staff mode"), btn("ghost small", "Lock", lockStaff));
+      return;
+    }
+    const inp = el("input");
+    inp.type = "password"; inp.id = "staff-pin"; inp.placeholder = "Staff PIN"; inp.autocomplete = "off";
+    inp.setAttribute("aria-label", "Staff PIN");
+    const msg = el("span", "form-msg");
+    const go = btn("primary small", "Unlock", async () => {
+      const pin = inp.value.trim();
+      if (!pin) { inp.focus(); return; }
+      go.disabled = true;
+      try {
+        const data = await post([], pin);
+        if (data && data.error === "bad_pin") { msg.textContent = "Wrong PIN"; msg.className = "form-msg err"; go.disabled = false; return; }
+        state.pin = pin; state.canWrite = true;
+        try { localStorage.setItem("rkl-pin", pin); } catch (e) {}
+        if (data && !data.error) applyState(data);
+        render();
+      } catch (e) { msg.textContent = "Couldn't check the PIN. Try again."; msg.className = "form-msg err"; go.disabled = false; }
+    });
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") go.click(); });
+    root.append(inp, go, msg);
+  }
+
+  function stepper(value, max, onChange, label) {
+    const wrap = el("div", "stepper");
+    const minus = el("button", null, "−");
+    const plus = el("button", null, "+");
+    minus.type = plus.type = "button";
+    minus.setAttribute("aria-label", "Fewer " + label);
+    plus.setAttribute("aria-label", "More " + label);
+    minus.disabled = value <= 0 || !state.canWrite;
+    plus.disabled = value >= max || !state.canWrite;
+    minus.addEventListener("click", () => onChange(value - 1));
+    plus.addEventListener("click", () => onChange(value + 1));
+    wrap.append(minus, el("output", null, String(value)), plus);
+    return wrap;
+  }
+
+  /* ---------- stock cards ---------- */
+  function renderStock() {
+    const root = $("stock");
+    root.replaceChildren();
+    for (const it of ITEMS) {
+      const total = state.totals[it.key] || 0;
+      const out = outCount(it.key);
+      const av = total - out;
+      const needed = state.people.filter((p) => statusOf(p) === "wait").reduce((s, p) => s + (p.needs?.[it.key] || 0), 0);
+      const card = el("article", "item");
+
+      const head = el("div", "item-head");
+      head.append(el("h3", null, it.name));
+      let pill;
+      if (total === 0) pill = el("span", "pill none", "No stock set");
+      else if (needed > av) pill = el("span", "pill none", `Short by ${needed - Math.max(av, 0)}`);
+      else if (av <= 0) pill = el("span", "pill low", "All in use");
+      else pill = el("span", "pill ok", "Enough");
+      head.append(pill);
+
+      const avail = el("div", "avail");
+      avail.append(el("span", "big", String(Math.max(av, 0))), el("span", "muted", "available"));
+
+      const meter = el("div", "meter");
+      meter.setAttribute("role", "img");
+      meter.setAttribute("aria-label", `${out} of ${total} in use`);
+      const bar = el("span", "m-out");
+      bar.style.width = total ? Math.min(100, (out / total) * 100) + "%" : "0%";
+      meter.append(bar);
+
+      const counts = el("div", "counts");
+      for (const [label, val] of [["Total", total], ["In use", out], ["Still needed", needed]]) {
+        const c = el("div");
+        c.append(el("span", "eyebrow", label), el("b", null, String(val)));
+        counts.append(c);
+      }
+      card.append(head, avail, meter, counts);
+
+      if (state.canWrite) {
+        const edit = el("div", "total-edit");
+        const inputId = "total-" + it.key;
+        const lab = el("label", null, "Total in stock");
+        lab.htmlFor = inputId;
+        const inp = el("input");
+        inp.type = "number"; inp.min = "0"; inp.step = "1"; inp.id = inputId; inp.value = String(total);
+        const msg = el("p", "form-msg");
+        const save = btn("ghost small", "Save", async () => {
+          const n = Math.floor(Number(inp.value));
+          if (!Number.isFinite(n) || n < 0) { msg.textContent = "Enter a whole number, 0 or more."; msg.className = "form-msg err"; return; }
+          if (n < out) { msg.textContent = `${out} are handed out, so the total can't be lower than ${out}.`; msg.className = "form-msg err"; return; }
+          save.disabled = true;
+          try { await saveTotal(it.key, n); }
+          catch (e) { writeFailed(e, msg); save.disabled = false; }
+        });
+        inp.addEventListener("keydown", (e) => { if (e.key === "Enter") save.click(); });
+        edit.append(lab, inp, save);
+        card.append(edit, msg);
+      }
+      root.append(card);
+    }
+  }
+
+  /* ---------- add people ---------- */
+  function renderKit() {
+    const root = $("add-kit");
+    root.replaceChildren();
+    for (const it of ITEMS) {
+      const row = el("div", "qty-row");
+      row.append(el("span", null, it.name), stepper(state.kit[it.key], 20, (v) => { state.kit[it.key] = v; renderKit(); }, it.name.toLowerCase()));
+      root.append(row);
+    }
+    $("add-submit").disabled = !state.canWrite;
+    $("add-names").disabled = !state.canWrite;
+    $("add-lang").disabled = !state.canWrite;
+  }
+
+  $("add-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = $("add-msg");
+    const defLang = cleanLang($("add-lang").value);
+    const lines = $("add-names").value.split(/\r?\n/).map((s) => {
+      const cut = s.search(/[,\t]/);
+      const name = (cut >= 0 ? s.slice(0, cut) : s).trim().replace(/\s+/g, " ");
+      const lang = cut >= 0 ? cleanLang(s.slice(cut + 1)) : "";
+      return { name, language: lang || defLang };
+    }).filter((l) => l.name);
+    if (!lines.length) { msg.textContent = "Enter at least one name."; msg.className = "form-msg err"; $("add-names").focus(); return; }
+    if (!ITEMS.some((i) => state.kit[i.key] > 0)) { msg.textContent = "Choose at least one item each person needs."; msg.className = "form-msg err"; return; }
+    const seen = new Set(state.people.map((p) => norm(p.name)));
+    const fresh = [], skipped = [];
+    for (const line of lines) {
+      if (seen.has(norm(line.name))) skipped.push(line.name);
+      else { seen.add(norm(line.name)); fresh.push(line); }
+    }
+    const sub = $("add-submit");
+    sub.disabled = true;
+    try {
+      const now = new Date().toISOString();
+      await batch(async () => {
+        for (const line of fresh) await addDoc("people", { name: line.name, language: line.language, needs: { ...state.kit }, createdAt: now });
+      });
+      let text = fresh.length ? `Added ${fresh.length} ${fresh.length === 1 ? "person" : "people"}.` : "Everyone is already on the list.";
+      if (fresh.length && skipped.length) text += ` Skipped ${skipped.length} already on the list.`;
+      msg.textContent = text;
+      msg.className = fresh.length ? "form-msg good" : "form-msg err";
+      if (fresh.length) $("add-names").value = "";
+    } catch (err) { writeFailed(err, msg); }
+    finally { sub.disabled = !state.canWrite; }
+  });
+
+  /* ---------- people list ---------- */
+  function openDrawer(p, mode) {
+    if (state.open && state.open.id === p.id && state.open.mode === mode) { state.open = null; renderPeople(); return; }
+    state.open = { id: p.id, mode };
+    state.draftNote = "";
+    if (mode === "give") {
+      state.draft = zero();
+      ITEMS.forEach((it) => (state.draft[it.key] = Math.min(p.needs?.[it.key] || 0, Math.max(available(it.key), 0))));
+    } else if (mode === "edit") {
+      state.draft = { ...zero(), ...(p.needs || {}) };
+      state.draftName = p.name || "";
+      state.draftLang = p.language || "";
+    } else {
+      state.draft = zero();
+    }
+    renderPeople();
+  }
+
+  async function giveItems(p, items, note, msgEl) {
+    for (const it of ITEMS) {
+      if (items[it.key] > available(it.key)) {
+        msgEl.textContent = `Only ${Math.max(available(it.key), 0)} ${it.name.toLowerCase()} available. Update the stock total or hand out fewer.`;
+        msgEl.className = "form-msg err";
+        return;
+      }
+    }
+    if (!ITEMS.some((it) => items[it.key] > 0)) { msgEl.textContent = "Choose at least one item."; msgEl.className = "form-msg err"; return; }
+    try {
+      state.open = null;
+      await addDoc("loans", { personId: p.id, person: p.name, language: langOf(p), items: { ...items }, returned: zero(), note: note || "", outAt: new Date().toISOString(), returnedAt: null });
+    } catch (e) { writeFailed(e, msgEl); }
+  }
+
+  async function returnItems(p, amounts, msgEl) {
+    try {
+      const now = new Date().toISOString();
+      const left = { ...amounts };
+      await batch(async () => {
+        for (const loan of loansFor(p).filter(loanIsOut)) {
+          const returned = { ...zero(), ...(loan.returned || {}) };
+          let changed = false;
+          for (const it of ITEMS) {
+            const take = Math.min(left[it.key] || 0, outstanding(loan, it.key));
+            if (take > 0) { returned[it.key] += take; left[it.key] -= take; changed = true; }
+          }
+          if (!changed) continue;
+          const done = ITEMS.every((it) => (loan.items?.[it.key] || 0) - returned[it.key] <= 0);
+          const patch = { returned, lastReturnAt: now };
+          if (done) patch.returnedAt = now;
+          await updateDoc("loans", loan.id, patch);
+        }
+      });
+      state.open = null; render();
+    } catch (e) { writeFailed(e, msgEl); }
+  }
+
+  function personOut(p) {
+    const o = zero();
+    loansFor(p).forEach((l) => ITEMS.forEach((it) => (o[it.key] += outstanding(l, it.key))));
+    return o;
+  }
+
+  function renderProgress() {
+    const counts = { all: state.people.length, wait: 0, out: 0, back: 0 };
+    state.people.forEach((p) => counts[statusOf(p)]++);
+    const root = $("progress");
+    root.replaceChildren();
+    const defs = [["all", "Everyone", "all"], ["wait", "Waiting", "wait"], ["out", "Has items", "out"], ["back", "Returned", "back"]];
+    for (const [key, label, dot] of defs) {
+      const b = el("button", "prog");
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(state.filter === key));
+      const top = el("span", "eyebrow");
+      top.append(el("span", "dot " + dot), document.createTextNode(label));
+      b.append(top, el("b", null, String(counts[key])));
+      b.addEventListener("click", () => { state.filter = key; renderPeople(); renderProgress(); });
+      root.append(b);
+    }
+    const received = counts.out + counts.back;
+    $("people-summary").textContent = counts.all
+      ? `${received} of ${counts.all} received · ${counts.back} of ${counts.all} returned`
+      : (state.loaded ? "No one on the list yet" : "");
+  }
+
+  function renderPeople() {
+    const q = norm($("search").value);
+    const order = { out: 0, wait: 1, back: 2 };
+    const list = state.people
+      .map((p) => ({ p, st: statusOf(p) }))
+      .filter(({ p, st }) => (state.filter === "all" || st === state.filter)
+        && (state.lang == null || norm(langOf(p)) === state.lang)
+        && (!q || norm(p.name).includes(q) || norm(langOf(p)).includes(q)))
+      .sort((a, b) => order[a.st] - order[b.st] || a.p.name.localeCompare(b.p.name));
+    const fl = $("filter-label");
+    fl.replaceChildren();
+    const bits = [];
+    if (state.filter !== "all") bits.push(STATUS[state.filter].label);
+    if (state.lang != null) bits.push(state.lang === "" ? "No language set" : (state.people.map(langOf).find((l) => norm(l) === state.lang) || state.lang));
+    if (bits.length) {
+      fl.append(document.createTextNode(`Showing: ${bits.join(" · ")} `));
+      fl.append(btn("link small", "Show everyone", () => { state.filter = "all"; state.lang = null; render(); }));
+    }
+
+    const root = $("people");
+    root.replaceChildren();
+    if (!state.loaded) {
+      root.append(el("div", "empty", configured ? "Loading the list…" : "Connect the Google Sheet to see the list."));
+      return;
+    }
+    if (!state.people.length) {
+      root.append(el("div", "empty", "Add the names of everyone who needs equipment. Each person then shows as Waiting, Has items, or Returned."));
+      return;
+    }
+    if (!list.length) {
+      root.append(el("div", "empty", q ? "No one on the list matches that search." : "No one matches this filter right now."));
+      return;
+    }
+
+    for (const { p, st } of list) {
+      const card = el("article", "person st-" + st);
+      const top = el("div", "person-top");
+      const left = el("div");
+      const whoLine = el("div", "who-line");
+      whoLine.append(el("span", "who", p.name));
+      if (langOf(p)) whoLine.append(el("span", "lang-tag", langWithCh(langOf(p))));
+      whoLine.append(el("span", "pill " + STATUS[st].pill, STATUS[st].label));
+      left.append(whoLine);
+
+      const ls = loansFor(p).sort((a, b) => (b.outAt || "").localeCompare(a.outAt || ""));
+      const chips = el("div", "chips");
+      if (st === "wait") {
+        left.append(el("div", "sub", "Needs"));
+        ITEMS.forEach((it) => { const n = p.needs?.[it.key] || 0; if (n) { const c = el("span", "chip"); c.append(el("b", null, String(n)), document.createTextNode(" " + itemWord(n, it))); chips.append(c); } });
+      } else if (st === "out") {
+        const o = personOut(p);
+        left.append(el("div", "sub", "Received " + fmt(ls.find(loanIsOut)?.outAt)));
+        ITEMS.forEach((it) => { const n = o[it.key]; if (n) { const c = el("span", "chip"); c.append(el("b", null, String(n)), document.createTextNode(" " + itemWord(n, it))); chips.append(c); } });
+        const back = zero();
+        ls.forEach((l) => ITEMS.forEach((it) => (back[it.key] += l.returned?.[it.key] || 0)));
+        ITEMS.forEach((it) => { const n = back[it.key]; if (n) { const c = el("span", "chip back"); c.append(el("b", null, String(n)), document.createTextNode(" " + itemWord(n, it) + " returned")); chips.append(c); } });
+      } else {
+        const last = ls[0];
+        left.append(el("div", "sub", `Received ${fmt(last?.outAt)} · Returned ${fmt(last?.returnedAt)}`));
+      }
+      if (chips.childElementCount) left.append(chips);
+      const lastNote = ls.find((l) => l.note)?.note;
+      if (lastNote && st !== "wait") left.append(el("div", "note", lastNote));
+      top.append(left);
+
+      const msg = el("p", "form-msg", "");
+      msg.setAttribute("role", "status");
+
+      if (state.canWrite) {
+        const actions = el("div", "actions");
+        const isOpen = (m) => state.open && state.open.id === p.id && state.open.mode === m;
+        if (st === "out") {
+          const o = personOut(p);
+          const totalOut = ITEMS.reduce((s, it) => s + o[it.key], 0);
+          if (totalOut > 1) actions.append(btn("ghost small", isOpen("return") ? "Cancel" : "Return some", () => openDrawer(p, "return")));
+          const all = btn("go small", "Mark returned", () => { all.disabled = true; returnItems(p, o, msg); });
+          actions.append(all);
+        } else {
+          actions.append(btn("primary small", isOpen("give") ? "Cancel" : (st === "back" ? "Hand out again" : "Hand out"), () => openDrawer(p, "give")));
+        }
+        actions.append(btn("link small", isOpen("edit") ? "Cancel" : "Edit", () => openDrawer(p, "edit")));
+        if (st !== "out") actions.append(btn("link small", "Remove", () => openDrawer(p, "remove")));
+        top.append(actions);
+      }
+      card.append(top);
+
+      if (state.canWrite && state.open && state.open.id === p.id) {
+        const mode = state.open.mode;
+        const d = el("div", "drawer");
+        if (mode === "give" || mode === "return" || mode === "edit") {
+          const o = personOut(p);
+          if (mode === "edit") {
+            const g = el("div", "edit-grid");
+            for (const [key, label, ph, list] of [["draftName", "Name", "", null], ["draftLang", "Language", "e.g. Vietnamese", "known-langs"]]) {
+              const f = el("div", "field");
+              const fid = key + "-" + p.id;
+              const lab = el("label", null, label); lab.htmlFor = fid;
+              const inp = el("input"); inp.type = "text"; inp.id = fid; inp.autocomplete = "off"; inp.placeholder = ph;
+              if (list) inp.setAttribute("list", list);
+              inp.value = state[key];
+              inp.addEventListener("input", () => (state[key] = inp.value));
+              inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); d.querySelector(".drawer-actions .btn")?.click(); } });
+              f.append(lab, inp);
+              g.append(f);
+            }
+            d.append(g);
+          }
+          const ch = channelOf(langOf(p));
+          const giveLabel = `Handing to ${p.name}` + (ch ? ` · set receiver to channel ${ch}` : "");
+          d.append(el("div", "qty-label", mode === "give" ? giveLabel : mode === "return" ? "How many are coming back?" : "What they need"));
+          for (const it of ITEMS) {
+            const max = mode === "give" ? Math.max(available(it.key), 0) : mode === "return" ? o[it.key] : 20;
+            if (mode === "return" && !max) continue;
+            const row = el("div", "qty-row");
+            const l = el("div");
+            const subText = mode === "give" ? `${max} available · needs ${p.needs?.[it.key] || 0}` : mode === "return" ? `${max} still out` : "";
+            l.append(el("span", null, it.name));
+            if (subText) l.append(el("small", null, subText));
+            row.append(l, stepper(state.draft[it.key], max, (v) => { state.draft[it.key] = v; renderPeople(); }, it.name.toLowerCase()));
+            d.append(row);
+          }
+          if (mode === "give") {
+            const nid = "note-" + p.id;
+            const f = el("div", "field");
+            const lab = el("label", null, "Note (optional)"); lab.htmlFor = nid;
+            const ta = el("input"); ta.type = "text"; ta.id = nid; ta.placeholder = "Serial or tag numbers";
+            ta.value = state.draftNote;
+            ta.addEventListener("input", () => (state.draftNote = ta.value));
+            f.append(lab, ta);
+            d.append(f);
+          }
+          const da = el("div", "drawer-actions");
+          const label = mode === "give" ? "Confirm handed out" : mode === "return" ? "Record return" : "Save";
+          const go = btn(mode === "return" ? "go small" : "primary small", label, async () => {
+            go.disabled = true;
+            if (mode === "give") await giveItems(p, state.draft, state.draftNote.trim(), msg);
+            else if (mode === "return") await returnItems(p, state.draft, msg);
+            else {
+              const name = state.draftName.trim().replace(/\s+/g, " ");
+              const fail = (t) => { msg.textContent = t; msg.className = "form-msg err"; go.disabled = false; };
+              if (!name) return fail("Enter a name.");
+              if (state.people.some((o2) => o2.id !== p.id && norm(o2.name) === norm(name))) return fail(`${name} is already on the list.`);
+              if (!ITEMS.some((it) => state.draft[it.key] > 0)) return fail("Choose at least one item.");
+              try {
+                const language = cleanLang(state.draftLang);
+                const needs = { ...state.draft };
+                await batch(async () => {
+                  await updateDoc("people", p.id, { name, language, needs });
+                  if (name !== p.name || language !== langOf(p)) {
+                    for (const l of state.loans.filter((l) => l.personId === p.id)) await updateDoc("loans", l.id, { person: name, language });
+                  }
+                });
+                state.open = null; render();
+              } catch (e) { writeFailed(e, msg); }
+            }
+            go.disabled = false;
+          });
+          go.disabled = !ITEMS.some((it) => state.draft[it.key] > 0) && mode !== "edit";
+          da.append(go);
+          d.append(da);
+        } else if (mode === "remove") {
+          d.append(el("div", null, `Remove ${p.name} from the list? Their past hand-outs stay in the history.`));
+          const da = el("div", "drawer-actions");
+          const yes = btn("danger small", "Remove", async () => {
+            yes.disabled = true;
+            try { state.open = null; await deleteDoc("people", p.id); } catch (e) { writeFailed(e, msg); yes.disabled = false; }
+          });
+          da.append(yes, btn("ghost small", "Keep", () => { state.open = null; renderPeople(); }));
+          d.append(da);
+        }
+        card.append(d);
+      }
+      card.append(msg);
+      root.append(card);
+    }
+  }
+  $("search").addEventListener("input", () => { renderPeople(); renderHistory(); });
+
+  /* ---------- languages ---------- */
+  function renderLanguages() {
+    const groups = new Map();
+    for (const p of state.people) {
+      const label = langOf(p);
+      const key = norm(label);
+      if (!groups.has(key)) groups.set(key, { key, label: label || "No language set", people: [] });
+      groups.get(key).people.push(p);
+    }
+    const rows = [...groups.values()].sort((a, b) => (a.key === "") - (b.key === "") || b.people.length - a.people.length || a.label.localeCompare(b.label));
+
+    const dl = $("known-langs");
+    dl.replaceChildren();
+    rows.filter((r) => r.key).forEach((r) => { const o = el("option"); o.value = r.label; dl.append(o); });
+
+    const root = $("lang-table");
+    root.replaceChildren();
+    if (!state.people.length) {
+      root.append(el("div", "empty", "Once people are on the list with a language, this table counts how many speak each one."));
+      return;
+    }
+    const cols = [["People", null], ["Waiting", "wait"], ["Has items", "out"], ["Returned", "back"]];
+    const sumRecv = (ps) => ps.reduce((s, p) => s + (p.needs?.receiver || 0), 0);
+    const outRecv = (ps) => ps.reduce((s, p) => s + personOut(p).receiver, 0);
+
+    const wrap = el("div", "tbl-wrap");
+    const t = el("table");
+    const thead = el("thead"); const hr = el("tr");
+    hr.append(el("th", null, "Language"), el("th", null, "Channel"));
+    cols.forEach(([c]) => hr.append(el("th", "num", c)));
+    hr.append(el("th", "num", "Receivers needed"), el("th", "num", "Receivers out"));
+    thead.append(hr);
+    const chCount = {};
+    rows.forEach((r) => { const c = r.key && state.channels[r.key]; if (c) chCount[norm(c)] = (chCount[norm(c)] || 0) + 1; });
+
+    const tb = el("tbody");
+    for (const g of rows) {
+      const tr = el("tr");
+      if (state.lang === g.key) tr.className = "active";
+      const td = el("td");
+      td.append(btn("lang-btn", g.label, () => {
+        state.lang = state.lang === g.key ? null : g.key;
+        render();
+        $("people-title").scrollIntoView({ behavior: "smooth", block: "start" });
+      }));
+      tr.append(td);
+      const chTd = el("td");
+      const cur = state.channels[g.key] || "";
+      if (!g.key) chTd.append(el("span", "muted", "–"));
+      else if (!state.canWrite) {
+        chTd.append(el("b", "num", cur || "–"));
+        if (cur && chCount[norm(cur)] > 1) chTd.append(document.createTextNode(" "), el("span", "pill low", "Shared"));
+      }
+      else {
+        const wrapCh = el("div", "ch-cell");
+        const inp = el("input");
+        inp.type = "text"; inp.inputMode = "numeric"; inp.className = "ch-input"; inp.id = "ch-" + g.key.replace(/[^a-z0-9]/g, "-");
+        inp.setAttribute("aria-label", `Channel for ${g.label}`);
+        inp.placeholder = "–"; inp.maxLength = 8;
+        inp.value = cur;
+        const note = el("span");
+        if (cur && chCount[norm(cur)] > 1) { note.textContent = "Shared"; note.className = "pill low"; note.title = "Another language uses this channel too"; }
+        const commitCh = async () => {
+          const v = inp.value.trim();
+          if (v === cur) return;
+          inp.disabled = true;
+          try { await saveChannel(g.label, v); }
+          catch (e) { writeFailed(e, null); note.textContent = "Not saved"; note.className = "pill none"; inp.disabled = false; }
+        };
+        inp.addEventListener("change", commitCh);
+        inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); });
+        wrapCh.append(inp, note);
+        chTd.append(wrapCh);
+      }
+      tr.append(chTd);
+      cols.forEach(([, st]) => tr.append(el("td", "num", String(st ? g.people.filter((p) => statusOf(p) === st).length : g.people.length))));
+      tr.append(el("td", "num", String(sumRecv(g.people))), el("td", "num", String(outRecv(g.people))));
+      tb.append(tr);
+    }
+    const nLang = rows.filter((r) => r.key).length;
+    const tf = el("tfoot"); const fr = el("tr");
+    fr.append(el("td", null, `Total · ${nLang} ${nLang === 1 ? "language" : "languages"}`), el("td"));
+    cols.forEach(([, st]) => fr.append(el("td", "num", String(st ? state.people.filter((p) => statusOf(p) === st).length : state.people.length))));
+    fr.append(el("td", "num", String(sumRecv(state.people))), el("td", "num", String(outRecv(state.people))));
+    tf.append(fr);
+    t.append(thead, tb, tf); wrap.append(t); root.append(wrap);
+  }
+
+  /* ---------- history ---------- */
+  function renderHistory() {
+    const q = norm($("search").value);
+    const all = state.loans.slice().sort((a, b) => (b.outAt || "").localeCompare(a.outAt || ""));
+    const list = all.filter((l) => !q || norm(l.person).includes(q) || norm(l.language).includes(q));
+    $("hist-summary").textContent = all.length ? `${all.length} ${all.length === 1 ? "hand-out" : "hand-outs"}` : "";
+    const root = $("hist");
+    root.replaceChildren();
+    if (!list.length) {
+      root.append(el("div", "empty", q ? "No hand-outs match that search." : "Every hand-out and return is recorded here with its date and time."));
+      return;
+    }
+    const wrap = el("div", "tbl-wrap");
+    const t = el("table");
+    const thead = el("thead"); const hr = el("tr");
+    hr.append(el("th", null, "Name"), el("th", null, "Language"));
+    ITEMS.forEach((it) => hr.append(el("th", "num", it.name)));
+    hr.append(el("th", null, "Received"), el("th", null, "Returned"), el("th", null, "Note"));
+    thead.append(hr);
+    const tb = el("tbody");
+    for (const l of list.slice(0, state.histLimit)) {
+      const tr = el("tr");
+      const lp = personById(l.personId);
+      tr.append(el("td", "who", lp ? lp.name : l.person), el("td", null, langWithCh(lp ? langOf(lp) : cleanLang(l.language))));
+      ITEMS.forEach((it) => {
+        const n = l.items?.[it.key] || 0, back = l.returned?.[it.key] || 0;
+        tr.append(el("td", "num", n ? (back >= n ? String(n) : `${back}/${n} back`) : "–"));
+      });
+      const retCell = el("td");
+      if (loanIsOut(l)) retCell.append(el("span", "pill low", "Not yet"));
+      else retCell.textContent = fmt(l.returnedAt);
+      tr.append(el("td", null, fmt(l.outAt)), retCell, el("td", "note", l.note || ""));
+      tb.append(tr);
+    }
+    t.append(thead, tb); wrap.append(t); root.append(wrap);
+    if (list.length > state.histLimit) {
+      const more = btn("ghost small", `Show ${Math.min(30, list.length - state.histLimit)} more`, () => { state.histLimit += 30; renderHistory(); });
+      more.style.marginTop = "12px";
+      root.append(more);
+    }
+  }
+
+  /* ---------- bulk return ---------- */
+  function renderBulk() {
+    const root = $("bulk");
+    root.replaceChildren();
+    const open = state.loans.filter(loanIsOut);
+    if (!open.length || !state.canWrite) return;
+    const names = new Set(open.map((l) => norm(l.person))).size;
+    if (state.bulkConfirm) {
+      const d = el("div", "drawer");
+      d.append(el("div", null, `Mark all ${names} ${names === 1 ? "person" : "people"} with items as returned?`));
+      const msg = el("p", "form-msg");
+      const da = el("div", "drawer-actions");
+      const yes = btn("go small", "Yes, all returned", async () => {
+        yes.disabled = true;
+        try {
+          const now = new Date().toISOString();
+          await batch(async () => {
+            for (const loan of open) {
+              const returned = { ...zero() };
+              ITEMS.forEach((it) => (returned[it.key] = loan.items?.[it.key] || 0));
+              await updateDoc("loans", loan.id, { returned, lastReturnAt: now, returnedAt: now });
+            }
+          });
+          state.bulkConfirm = false; render();
+        } catch (e) { writeFailed(e, msg); yes.disabled = false; }
+      });
+      da.append(yes, btn("ghost small", "Cancel", () => { state.bulkConfirm = false; renderBulk(); }));
+      d.append(da, msg);
+      root.append(d);
+    } else {
+      root.append(btn("go small", "Mark everyone returned", () => { state.bulkConfirm = true; renderBulk(); }));
+    }
+  }
+
+  /* ---------- reset ---------- */
+  function csv() {
+    const esc = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const rows = [["Name", "Language", "Channel", ...ITEMS.map((it) => it.name + " taken"), ...ITEMS.map((it) => it.name + " returned"), "Received", "Returned", "Note"]];
+    state.loans.slice().sort((a, b) => (a.outAt || "").localeCompare(b.outAt || "")).forEach((l) => {
+      const lp = personById(l.personId);
+      const ll = lp ? langOf(lp) : cleanLang(l.language);
+      rows.push([lp ? lp.name : l.person, ll, channelOf(ll), ...ITEMS.map((it) => l.items?.[it.key] || 0), ...ITEMS.map((it) => l.returned?.[it.key] || 0), l.outAt || "", l.returnedAt || "", l.note || ""]);
+    });
+    return rows.map((r) => r.map(esc).join(",")).join("\r\n");
+  }
+
+  function renderReset() {
+    const root = $("reset-actions");
+    root.replaceChildren();
+    const msg = $("reset-msg");
+    $("reset-people").disabled = !state.canWrite;
+    $("reset-stock").disabled = !state.canWrite;
+
+    if (state.loans.length) {
+      root.append(btn("ghost small", "Download records (CSV)", () => {
+        const d = new Date();
+        const stamp = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        const url = URL.createObjectURL(new Blob(["﻿" + csv()], { type: "text/csv;charset=utf-8" }));
+        const a = document.createElement("a");
+        a.href = url; a.download = `receiver-kit-log-${stamp}.csv`;
+        document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      }));
+    }
+
+    const nothing = !state.loans.length && !state.people.length && !ITEMS.some((it) => state.totals[it.key]);
+    if (state.resetConfirm && state.canWrite) {
+      const out = state.loans.filter(loanIsOut).length;
+      const parts = [`${state.loans.length} hand-out ${state.loans.length === 1 ? "record" : "records"}`];
+      if ($("reset-people").checked) parts.push(`${state.people.length} ${state.people.length === 1 ? "person" : "people"}`);
+      if ($("reset-stock").checked) parts.push("all stock totals");
+      const warn = el("span", "form-msg err", `This permanently deletes ${parts.join(", ")}.` + (out ? ` ${out} hand-outs aren't marked returned yet.` : "") + " It can't be undone.");
+      const yes = btn("danger small", "Yes, reset", async () => {
+        yes.disabled = true;
+        msg.textContent = "Resetting…"; msg.className = "form-msg";
+        try {
+          await batch(async () => {
+            for (const l of state.loans.slice()) await deleteDoc("loans", l.id);
+            if ($("reset-people").checked) for (const p of state.people.slice()) await deleteDoc("people", p.id);
+            if ($("reset-stock").checked) for (const it of ITEMS) await saveTotal(it.key, 0);
+          });
+          state.resetConfirm = false;
+          msg.textContent = "Reset done."; msg.className = "form-msg good";
+          render();
+        } catch (e) { writeFailed(e, msg); yes.disabled = false; }
+      });
+      root.append(yes, btn("ghost small", "Cancel", () => { state.resetConfirm = false; renderReset(); }), warn);
+    } else if (state.canWrite) {
+      const b = btn("danger small", "Reset…", () => { state.resetConfirm = true; msg.textContent = ""; renderReset(); });
+      b.disabled = nothing;
+      root.append(b);
+    }
+  }
+  $("reset-people").addEventListener("change", renderReset);
+  $("reset-stock").addEventListener("change", renderReset);
+
+  function render() {
+    renderStaff();
+    renderStock();
+    renderKit();
+    renderProgress();
+    renderBulk();
+    renderPeople();
+    renderLanguages();
+    renderHistory();
+    renderReset();
+    $("readonly-notice").hidden = !configured || state.canWrite;
+  }
+
+  /* ---------- boot ---------- */
+  $("setup-notice").hidden = configured;
+  if (!configured) setSync("Not connected");
+  render();
+  load();
+  // Pick up changes from other phones and computers.
+  const typingHere = () => {
+    const a = document.activeElement;
+    return a && a.matches("input, textarea") && a.closest("#stock, #people, #lang-table, #staff");
+  };
+  setInterval(() => {
+    if (document.hidden || state.busy || state.open || state.bulkConfirm || state.resetConfirm || typingHere()) return;
+    load();
+  }, 15000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !state.busy) load(); });
+})();
+</script>
+</body>
+</html>
